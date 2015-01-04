@@ -227,6 +227,7 @@ def mon_alarms():
                     o = vert.insert_many(sql_insert,rows)
 
 
+
                 # for row in rows:
                     # for column in row:
                        # logging.info( str(column[0]) )
