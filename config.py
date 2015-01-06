@@ -202,7 +202,26 @@ perf = {
         "severity": "ERROR",
         "interval": "30"
     },
-        "TEST_UERY_PERFORMANCE": {
+    "REJECTED_RESOURCES_DETAILS": {
+        "query": """SELECT DISTINCT node_name AS 'Node Name', transaction_id AS 'Transaction ID', statement_id AS 'Statement ID'
+                         , pool_name AS 'Pool Name'
+                         , memory_requested_kb AS 'Memory Requested (KB)'
+                         , priority AS 'Priority'
+                         , position_in_queue AS 'Position in Queue'
+                         , queue_entry_timestamp AS 'Queue Entry Timestamp'
+                      FROM v_monitor.resource_queues
+                    """,
+        "sqltable": "leo.resource_queues",
+        "connection": "vertica",
+        "sqlinsert": "insert into leo.mon_cpu_usage values(?,?) "
+                     " where start_time > (select max(start_time) from leo.mon_cpu_usage) ",
+        "error_msg": "CPU usage too high %s",
+        "threshold": "95",
+        "component": "perf",
+        "severity": "ERROR",
+        "interval": "30"
+    },
+        "TEST_QUERY_PERFORMANCE": {
         "query": """insert into leo.test123 values(1 , 'o')
                     """,
         "sqltable": "leo.query_performance",
