@@ -203,19 +203,15 @@ perf = {
         "interval": "30"
     },
     "REJECTED_RESOURCES_DETAILS": {
-        "query": """SELECT DISTINCT node_name AS 'Node Name', transaction_id AS 'Transaction ID', statement_id AS 'Statement ID'
-                         , pool_name AS 'Pool Name'
-                         , memory_requested_kb AS 'Memory Requested (KB)'
-                         , priority AS 'Priority'
-                         , position_in_queue AS 'Position in Queue'
-                         , queue_entry_timestamp AS 'Queue Entry Timestamp'
-                      FROM v_monitor.resource_queues
+        "query": """SELECT r.rejected_timestamp, r.node_name, r.user_name, r.pool_name, r.reason, r.resource_type, r.rejected_value
+                           ,r.transaction_id , r.statement_id
+                    FROM   v_monitor.resource_rejection_details r
+                    WHERE rejected_timestamp >= sysdate() - interval '1 hour' limit 30;
                     """,
-        "sqltable": "leo.resource_queues",
-        "connection": "vertica",
-        "sqlinsert": "insert into leo.mon_cpu_usage values(?,?) "
-                     " where start_time > (select max(start_time) from leo.mon_cpu_usage) ",
-        "error_msg": "CPU usage too high %s",
+        "sqltable": "leo.rejected_resources",
+        "connection": "vertica" ,
+        "sqlinsert": " ",
+        "error_msg": "CPU usage too high %s" ,
         "threshold": "95",
         "component": "perf",
         "severity": "ERROR",
