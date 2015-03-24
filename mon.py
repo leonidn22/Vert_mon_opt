@@ -1,5 +1,5 @@
 #!/opt/vertica/oss/python/bin/python
-__author__ = 'xopc'
+
 
 import pyodbc
 import os
@@ -12,20 +12,14 @@ import argparse
 
 MYSQL_DSN="MSSQL"
 #MYSQL_DSN=sys.argv[1]
-logfile = "/home/dbadmin/leo/mon/mon.log"
+curr_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
+logfile = os.path.join(curr_dir, "logs/mon.log")
+
 logging.basicConfig(format='[%(asctime)s] %(levelname)s : %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filename=logfile,
                     level=logging.INFO)
-logger = logging.getLogger('MON')
 
-#proc_id = "%s_%s" % (os.getpid(), random.randint(1, 10000))
-#pidfile = "/data/etl/etl_%s.pid" % MYSQL_DSN
-#input_path = "/data/input/"
-#work_dir = "/data/etl/work/"
-#error_dir = "/data/etl/error/"
-#done_dir = "/data/etl/done/"
-#rej_table = "rejected"
-#NOTOK=108
-#OK=109
+#logger = logging.getLogger('MON')
+
 alarms=config.alarms
 msg=config.msg
 drill=config.drill
@@ -70,7 +64,6 @@ class Vertica(object):
                         break
                     output.append(row)
 
-
             except Exception, e:
                 logging.debug("Exception: %s" % e)
                 print ("Exception: %s" % e)
@@ -80,6 +73,32 @@ class Vertica(object):
             logging.error("Exception: %s" %e)
             print ("Exception: %s" %e)
             return -1, str(e).replace("'", '')
+
+    def create_schema(self, schema_name):
+        self.cursor.execute("create schema IF NOT EXISTS %s" % schema_name)
+
+
+    def has_schema(self, schema):
+        query = ("SELECT EXISTS (SELECT schema_name FROM v_catalog.schemata "
+                 "WHERE schema_name='%s')") % (schema)
+        rs = self.execute(query)
+        return bool(rs[1][0][0])
+
+    def has_table(self, table_name, schema=None):
+        if schema is None:
+            schema = self.get_default_schema_name()[1][0][0]
+        if table_name == schema:
+            schema = self.get_default_schema_name()[1][0][0]
+        if table_name == 'Version':
+            schema = 'install'
+
+        query = ("SELECT EXISTS ("
+                 "SELECT table_name FROM v_catalog.all_tables "
+                 "WHERE schema_name='%s' AND "
+                 "table_name='%s'"
+                 ")") % (schema, table_name)
+        rs = self.execute(query)
+        return bool(rs[1][0][0])
 
     def insert_many(self, query,rows):
         try:
@@ -102,7 +121,6 @@ class Vertica(object):
         self.cn.rollback()
 
 
-#TODO: rewrite to normal code
 class Mssql(object):
     """docstring for conn"""
 
@@ -162,21 +180,58 @@ class Mssql(object):
 
 def mon_alarms():
 # sample: alarms ,[REJECTED_RESOURCES_COUNT]
-    if(args.monType == 'alarms'):
+    pass
+    if args.monType == 'alarms':
         for k in config.mon:
-            if(not args.monElement.__contains__(k) ):
+            if not args.monElement.__contains__(k):
                 continue
             logging.info(k)
-            sql = config.mon[k]['query'].replace("\n", " ") % {'MAX': config.mon[k]['threshold'],
-                                                             'INTERVAL': config.mon[k]['interval']}
-            #logging.info(sql)
-            o = vert.execute(sql)
-            if o[0] == 0:
-                logging.info(o[1][0][0])
+# check critical threshold if exists
+            if 'threshold_c' in config.mon[k]:
+                if 'max_c' in config.mon[k]:
+                    max_t = config.mon[k]['max_c']
+                else:
+                    max_t = 0
+                sql = config.mon[k]['query'].replace("\n", " ") % {'MAX': max_t,
+                                                                   'INTERVAL': config.mon[k]['interval']}
+                res = vert.execute(sql)
+                if res[0] == 0 and res[2] > 0 and res[1][0][0] >= config.mon[k]['threshold_c']:
+                    print config.mon[k]['error_msg'] % {'RES': res[1][0][0], 'MAX': str(max_t)}
+
+                    sys.exit(2)
+                else:
+                    pass
+# check warning threshold
+            if 'threshold' in config.mon[k]:
+                if 'max' in config.mon[k]:
+                    max_t = config.mon[k]['max']
+                else:
+                    max_t = 0
+
+                if 'rerun' in config.mon[k]:
+                    rerun = config.mon[k]['rerun']
+                else:
+                    rerun = True
+                if rerun:
+                    sql = config.mon[k]['query'].replace("\n", " ") % {'MAX': max_t,
+                                                                       'INTERVAL': config.mon[k]['interval']}
+                    res = vert.execute(sql)
+
+                if res[0] == 0 and res[2] > 0 and res[1][0][0] >= config.mon[k]['threshold']:
+                    print config.mon[k]['error_msg'] % {'RES': res[1][0][0], 'MAX': str(max_t)}
+                    sys.exit(1)
+                else:
+                    pass
+
+
+                # num_col = len(rows[0])
+                # for col in range(num_col):
+                #     print res[1][0][col]
+
                 #print('')
 # sample: perf ,[QUERY_PERFORMANCE,QUERY_EVENTS]
 # sample: perf ,[RESOURCE_QUEUES]
-    if(args.monType == 'perf'):
+    if args.monType == 'perf':
         for k in config.perf:
             if(not args.monElement.__contains__(k) ):
             #if(k<>args.monElement):
@@ -186,6 +241,7 @@ def mon_alarms():
             cperf = config.perf[k]
 #            sql = cperf['query'].replace("\n", " ") #% {'MAX': cperf['threshold'],
                                                     #         'INTERVAL': cperf['interval']}
+#ToDo create table cperf['sqltable']
             if("select" in cperf['interval']):
                 sql = cperf['interval'] % cperf['sqltable']
                 o = vert.execute(sql)
@@ -257,7 +313,7 @@ def arg_validation():
 args=arg_validation()
 
 vert = Vertica()
-mssql = Mssql()
+#mssql = Mssql()
 #b = Mssql()
 # OK = False
 
@@ -275,6 +331,7 @@ else:
 logging.info("Monitor process runs on %s" % node_name)
 #print("Monitor process runs on %s" % node_name)
 logging.info("----------------------------------------")
+
 mon_alarms()
 
 

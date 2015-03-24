@@ -16,87 +16,180 @@ mon = {
     "WARNING_EVENTS_COUNT": {
         "query": " select count(*) from active_events where event_severity in ('Error','Warning') "
                  " and event_posted_timestamp >= sysdate() - interval '%(INTERVAL)s minute' ",
-        "error_msg": "There are %s Warning events in Vertica",
-        "threshold": "1",
+        "query1": " select 10 ",
+
+        "error_msg": "There are %(RES)s Error and Warning events in Vertica. "
+                     "Hint: query table active_events where event_severity in ('Error','Warning') ...",
+        "threshold": 1 ,
+       # "thresholdc": "1",
         "component": "alarm",
         "severity": "Warning",
-        "interval": "60"
+        "interval": "30"
     },
     "CRITICAL_EVENTS_COUNT": {
         "query": "select count(*) from active_events where event_severity in ('Emergency','Alert','Critical')"
                  " and event_posted_timestamp >= sysdate() - interval '%(INTERVAL)s minute' ",
-        "error_msg": "There are %s Critical events in Vertica",
-        "threshold": "1",
+        "error_msg": "There are %(RES)s Critical events in Vertica. "
+                     "Hint: query table active_events where event_severity in ('Error','Warning') ...",
+        "threshold": 1,
         "component": "alarm",
         "severity": "Critical",
-        "interval": "60"
+        "interval": "30"
     },
     "NODES_DOWN": {
-        "query": "select node_name , node_state from v_catalog.nodes where node_state <> 'UP'  ",
-        "error_msg": "There are %s Nodes Down in Vertica",
-        "threshold": "1",
+        "query": "select count(*) from v_catalog.nodes where node_state <> 'UP'  ",
+        "error_msg": "There are %(RES)s Nodes Down in Vertica ",
+        "threshold_c": 1,
         "component": "alarm",
         "severity": "Critical",
-        "interval": ""
+        "interval": "5"
     },
+#ToDo NODES_LESS_40_PERCENT active_events
     "NODES_LESS_40_PERCENT": {
-        "query": "SELECT count(*) FROM   v_monitor.disk_storage s join v_catalog.nodes n using (NODE_NAME)  "
-                 " WHERE  (disk_space_free_mb*100) / ( disk_space_used_mb + disk_space_free_mb ) < 40 "
+        "query": "SELECT count(*) FROM   v_monitor.disk_storage s "
+                 " WHERE  (disk_space_free_mb*100) / ( disk_space_used_mb + disk_space_free_mb ) < %(MAX)s "
                  " AND storage_usage = 'DATA,TEMP' ",
-        "error_msg": "There are %s Disks with less 40% free in Vertica",
-        "threshold": "1",
+        "error_msg": "There are %(RES)s Disks with less %(MAX)s percent free in Vertica",
+        "threshold": 1,
+        "max": 40,
+        "threshold_c": 1,
+        "max_c": 20,
         "component": "alarm",
         "severity": "Warning",
-        "interval": ""
+        "interval": "12 hours"
     },
     "CPE_LGE": {
         "query": " SELECT  get_current_epoch() - get_last_good_epoch() as ce_lge  ",
-        "error_msg": "There is %s difference between current and last good epoch in Vertica",
-        "threshold": "1000",
-        "component": "alarm",
-        "severity": "Warning",
-        "interval": ""
-    },
-    "CPE_AHM": {
-        "query": " SELECT  get_current_epoch() - get_last_good_epoch() as ce_lge  ",
-        "error_msg": "There is %s difference between current epoch and Ancient History Mark  in Vertica",
-        "threshold": "1000",
-        "component": "alarm",
-        "severity": "Warning",
-        "interval": ""
-    },
-    "CPE_AHM": {
-        "query": " SELECT COUNT(*) FROM   v_monitor.resource_rejection_details  "
-                 " where rejected_timestamp >= sysdate() - interval '%(INTERVAL)s minute' ",
-        "error_msg": "There were %s rejected resource last hour in Vertica",
-        "threshold": "1",
+        "error_msg": "The difference between current and last good epoch is %(RES)s in Vertica",
+        "threshold": 500,
+        "threshold_c": 1000,
+        "rerun": False,
         "component": "alarm",
         "severity": "Warning",
         "interval": "60"
+    },
+    "CPE_AHM": {
+        "query": " SELECT  get_current_epoch() - get_last_good_epoch() as ce_lge  ",
+        "error_msg": "The difference between current epoch and Ancient History Mark is %(RES)s in Vertica",
+        "threshold": 500,
+        "threshold_c": 1000,
+        "rerun": False,
+        "component": "alarm",
+        "severity": "Warning",
+        "interval": "12 hours"
     },
     "MAX_SESSIONS_PERCENT": {
         "query": " WITH maxs as "
                  "(SELECT  CURRENT_VALUE as val FROM CONFIGURATION_PARAMETERS WHERE parameter_name='MaxClientSessions')"
                  " select max(sessPercent)::int from "
-                 "(select (count(*)*100)/val as sessPercent, node_name from sessions,maxs group by node_name,val) sess",
-        "error_msg": "There is %s percent of number of sessions in one node in Vertica",
-        "threshold": "80",
+                 "(select (count(*)*100)/val as sessPercent from sessions, maxs group by node_name,val) sess ",
+        "error_msg": "There number of sessions in one node is %(RES)s percent of MaxClientSessions in Vertica",
+        "threshold": 80,
+        "threshold_c": 90,
+        "rerun": False,
         "component": "alarm",
         "severity": "Warning",
+
         "interval": "30"
     },
     "REJECTED_RESOURCES_COUNT": {
-        "query": " SELECT COUNT(*) "
-                 " FROM   v_monitor.resource_rejection_details "
-                 " where rejected_timestamp >= sysdate() - interval '1 hour' ",
-        "error_msg": "There were %s rejected resources last Hour in Vertica",
-        "threshold": "80",
+        "query": """
+                SELECT COUNT(*)
+                      FROM   v_monitor.resource_rejection_details
+                      where rejected_timestamp >= sysdate() - interval '%(INTERVAL)s '
+                """,
+        "error_msg": "There were %(RES)s rejected resources last 30 minutes in Vertica",
+        "threshold": 5,
+        "threshold_c": 10,
+        "rerun": False,
         "component": "alarm",
         "severity": "Warning",
-        "interval": "30"
+        "interval": "30 minute"
+    },
+    "PROJECTION_ROS_PERCENT": {
+        "query_drill": """ select projection_schema,  projection_name , anchor_table_name , ros_count
+                      , (ros_count*100 / CURRENT_VALUE)::int
+                      FROM projection_storage , CONFIGURATION_PARAMETERS
+                      where projection_schema = 'public' and parameter_name = 'MaxPartitionCount'
+                      order by ros_count desc limit 1
+                 """,
+
+        "query": """ select (max(ros_count)*100 / max(CURRENT_VALUE) )::int
+                      FROM projection_storage , CONFIGURATION_PARAMETERS
+                      where projection_schema = 'public' and parameter_name = 'MaxPartitionCount'
+                  """,
+        "error_msg": "The number of ROS is %(RES)s of MaxPartitionCount in Vertica",
+        "threshold": 85,
+        "threshold_c": 95,
+        "rerun": False,
+        "component": "alarm",
+        "severity": "Warning",
+        "interval": "12 hours"
+    },
+    "SCHEMA_COUNT": {
+        "query_drill": """ select projection_schema,  projection_name , anchor_table_name , ros_count
+                      , (ros_count*100 / CURRENT_VALUE)::int
+                      FROM projection_storage , CONFIGURATION_PARAMETERS
+                      where projection_schema = 'public' and parameter_name = 'MaxPartitionCount'
+                      order by ros_count desc limit 1
+                 """,
+
+        "query": """ select count(*) from v_catalog.schemata """,
+        "error_msg": "The number of schemas is %(RES)s  in Vertica. Recommended less than %(MAX)s.",
+        "threshold": 200,
+        "threshold_c": 400,
+        "max": 200,
+        "max_c": 200,
+        "rerun": False,
+        "component": "alarm",
+        "severity": "Warning",
+        "interval": "12 hours"
+    },
+    "UNREFRESHED_PROJECTIONS": {
+        "query_drill": """ select projection_schema,  projection_name , anchor_table_name
+                            from projections
+                            where not is_up_to_date
+                 """,
+
+        "query": """ select count(*)
+                            from projections
+                            where not is_up_to_date """,
+        "error_msg": "The number of unrefreshed projections is %(RES)s  in Vertica.",
+        "threshold": 1,
+        "threshold_c": 2,
+        "rerun": False,
+        "component": "alarm",
+        "severity": "Warning",
+        "interval": "day"
+    },
+    "DELETED_ROWS": {
+        "query_drill": """
+             select dv.schema_name,ps.anchor_table_name,dv.projection_name,deleted_row_count*100/row_count as PctDeleted
+              from   delete_vectors dv
+                join projection_storage ps
+                on ps.projection_schema = dv.schema_name and ps.projection_name = dv.projection_name
+              order by projection_name
+                """,
+
+        "query": """ select (deleted_row_count*100/row_count)::int as PctDeleted
+                        from delete_vectors dv
+                           join projection_storage ps
+                           on ps.projection_schema = dv.schema_name and ps.projection_name = dv.projection_name
+                        order by deleted_row_count*100/row_count desc limit 1;
+                """,
+        "error_msg": "The max percent of deleted rows is %(RES)s  in Vertica.",
+        "threshold": 15,
+        "threshold_c": 25,
+        "rerun": False,
+        "component": "alarm",
+        "severity": "Warning",
+        "interval": "12 hours"
     }
 
 }
+#ToDo not refreshed projection count
+#ToDo schema count threshold = 200
+#ToDo delete vectors = 200
 
 perf = {
     "CPU_USAGE": {
